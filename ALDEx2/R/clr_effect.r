@@ -14,10 +14,10 @@ if (is.multicore == TRUE & useMC == TRUE){
     }
 
 if (is.multicore == FALSE | useMC ==FALSE){
-    print("operating in serial mode") 
+    print("operating in serial mode")
     is.multicore = FALSE
-    }  
-    
+    }
+
     nr <- numFeatures(clr) # number of features
     rn <- getFeatureNames(clr) # feature names
     # ---------------------------------------------------------------------
@@ -25,14 +25,14 @@ if (is.multicore == FALSE | useMC ==FALSE){
     # sanity check to ensure only two conditons passed to this function
     conditions <- as.factor( conditions )
     levels     <- levels( conditions )
-    
+
     if ( length( conditions ) !=  numConditions(clr) ) stop("mismatch btw 'length(conditions)' and 'ncol(reads)'")
 
     if ( length( levels ) != 2 ) stop("only two condition levels are currently supported")
- 
+
     levels <- vector( "list", length( levels ) )
     names( levels ) <- levels( conditions )
-    
+
     for ( l in levels( conditions ) ) {
         levels[[l]] <- which( conditions == l )
         if ( length( levels[[l]] ) < 2 ) stop("condition level '",l,"' has less than two replicates")
@@ -42,11 +42,11 @@ if (is.multicore == FALSE | useMC ==FALSE){
 if (verbose == TRUE) print("sanity check complete")
 
     # Summarize the relative abundance (rab) win and all groups
-    
+
     rab <- vector( "list", 3 )
     names(rab) <- c( "all", "win", "spl" )
     rab$win <- list()
-    
+
     #this is the median value across all monte carlo replicates
     cl2p <- NULL
     for ( m in getMonteCarloInstances(clr) ) cl2p <- cbind( cl2p, m )
@@ -54,7 +54,7 @@ if (verbose == TRUE) print("sanity check complete")
     rm(cl2p)
     gc()
  if (verbose == TRUE) print("rab.all  complete")
-   
+
     #this is the median value across all monte carlo replicates per level
     for ( level in levels(conditions) ) {
         cl2p <- NULL
@@ -83,9 +83,9 @@ if (verbose == TRUE) print("rab of samples complete")
         concat <- NULL
         for ( l1 in sort( levels[[level]] ) ) {
             concat <- cbind(  getMonteCarloReplicate(clr,l1),concat )
-            
+
         }
-        
+
         #if the sample is huge, only sample 10000
         if ( ncol(concat) < 10000 ){
             sampl1 <- t(apply(concat, 1, function(x){sample(x, ncol(concat))}))
@@ -113,7 +113,7 @@ if (verbose == TRUE) print("within sample difference calculated")
     concatl2 <- NULL
     for( l1 in levels[[1]] ) concatl1 <- cbind( getMonteCarloReplicate(clr,l1),concatl1 )
     for( l2 in levels[[2]] ) concatl2 <- cbind( getMonteCarloReplicate(clr,l2),concatl2 )
-        
+
     sample.size <- min(ncol(concatl1), ncol(concatl2))
 
     if ( sample.size < 10000 ){
@@ -133,14 +133,14 @@ if (verbose == TRUE) print("between group difference calculated")
     win.max <- matrix( 0 , nrow=nr , ncol=ncol.wanted )
     l2d$effect <- matrix( 0 , nrow=nr , ncol=ncol(l2d$btw) )
     rownames(l2d$effect) <- rn
-    
+
 ###the number of elements in l2d$btw and l2d$win may leave a remainder when
   #recycling these random vectors. Warnings are suppressed because this is not an issue
   #for this calculation. In fact, any attempt to get rid of this error would
   #decrease our power as one or both vectors would need to be truncated gg 20/06/2013
-  
+
     options(warn=-1)
-    
+
     for ( i in 1:nr ) {
         win.max[i,] <- apply( ( rbind( l2d$win[[1]][i,] , l2d$win[[2]][i,] ) ) , 2 , max )
         l2d$effect[i,] <- l2d$btw[i,] / win.max[i,]
@@ -160,24 +160,32 @@ if (verbose == TRUE) print("between group difference calculated")
     l2s$win <- list()
 
     l2s$btw <- t(apply( l2d$btw, 1, median ))
+    l2s$btw.025 <- t(apply( l2d$btw, 1, function(x) { quantile(x,probs=c(0.025)) }))
+    l2s$btw.975 <- t(apply( l2d$btw, 1, function(x) { quantile(x,probs=c(0.975)) }))
     l2s$win  <- t(apply( attr(l2d$win,"max"), 1, median ))
+    l2s$win.025 <- t(apply( attr(l2d$win,"max"), 1, function(x) { quantile(x,probs=c(0.025)) }))
+    l2s$win.975 <- t(apply( attr(l2d$win,"max"), 1, function(x) { quantile(x,probs=c(0.975)) }))
 if (verbose == TRUE) print("group summaries calculated")
-    
+
     effect  <- t(apply( l2d$effect, 1, median ))
+    effect.025 <- t(apply( l2d$effect, 1, function(x) { quantile(x,probs=c(0.025)) }))
+    effect.975 <- t(apply( l2d$effect, 1, function(x) { quantile(x,probs=c(0.975)) }))
     overlap <- apply( l2d$effect, 1, function(row) { min( aitchison.mean( c( sum( row < 0 ) , sum( row > 0 ) ) + 0.5 ) ) } )
 if (verbose == TRUE) print("effect size calculated")
-    
+
 # make and fill in the data table
 # i know this is inefficient, but it works and is not a bottleneck
     rv <- list(
         rab = rab,
         diff = l2s,
         effect = effect,
+        effect.025 = effect.025,
+        effect.975 = effect.975,
         overlap = overlap
     )
-    
+
 if (verbose == TRUE) print("summarizing output")
-   
+
    y.rv <- data.frame(t(rv$rab$all))
    colnames(y.rv) <- c("rab.all")
    for(i in names(rv$rab$win)){
@@ -189,15 +197,17 @@ if (verbose == TRUE) print("summarizing output")
        nm <- paste("rab.sample", i, sep=".")
        y.rv[,nm] <- data.frame(t(rv$rab$spl[[i]]))
    }
-      
+
    }
    for(i in names(rv$diff)){
        nm <- paste("diff", i, sep=".")
        y.rv[,nm] <- data.frame(t(rv$diff[[i]]))
    }
    y.rv[,"effect"] <- data.frame(t(rv$effect))
+   y.rv[,"effect.025"] <- data.frame(t(rv$effect.025))
+   y.rv[,"effect.975"] <- data.frame(t(rv$effect.975))
    y.rv[,"overlap"] <- data.frame(rv$overlap)
 
-    return(y.rv)  
+    return(y.rv)
 
 }
